@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cmd.exe /c \"where go & go version\")",
+      "Bash(cmd.exe /c \"scoop --version 2>&1 & choco --version 2>&1 & winget --version 2>&1\")",
+      "Bash(cmd.exe /c \"winget --version\")",
+      "Bash(cmd.exe /c \"scoop --version\")",
+      "Bash(where go:*)",
+      "Read(//usr/local/go/**)",
+      "Read(//c/Program Files/Go/**)",
+      "Bash(cmd.exe /c \"where go\")",
+      "Bash(cmd.exe /c \"go version\")",
+      "Bash(cmd.exe /c \"echo %PATH%\" 2>&1)",
+      "Bash(powershell.exe -Command \"go version\" 2>&1)",
+      "Read(//c/Go/**)",
+      "Bash(powershell.exe -Command \"Get-Command go -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source\")",
+      "Bash(go get:*)"
+    ]
+  }
+}

@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+
+  <Product
+    Id="*"
+    Name="Battery Monitor"
+    Language="1028"
+    Codepage="1252"
+    Version="1.0.0.0"
+    Manufacturer="notebook_bat"
+    UpgradeCode="{6D8E3F12-A4B5-4C67-8D9E-0A1B2C3D4E5F}">
+
+    <Package
+      InstallerVersion="500"
+      Compressed="yes"
+      InstallScope="perMachine"
+      Platform="arm64" />
+
+    <MajorUpgrade
+      DowngradeErrorMessage="A newer version is already installed."
+      Schedule="afterInstallInitialize" />
+
+    <MediaTemplate EmbedCab="yes" />
+
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="ProgramFiles64Folder">
+        <Directory Id="INSTALLFOLDER" Name="BatteryMonitor" />
+      </Directory>
+      <Directory Id="CommonAppDataFolder">
+        <Directory Id="DATADIR" Name="BatteryMonitor" />
+      </Directory>
+    </Directory>
+
+    <Feature Id="Main" Title="Battery Monitor" Level="1">
+      <ComponentGroupRef Id="AppFiles" />
+    </Feature>
+
+    <ComponentGroup Id="AppFiles">
+
+      <Component Id="CmpExe" Directory="INSTALLFOLDER" Guid="{A1234567-BCDE-F012-3456-7890ABCDEF01}">
+        <File Id="FileExe"
+              Source="..\battery-monitor.exe"
+              KeyPath="yes" />
+
+        <ServiceInstall
+          Id="SvcInstall"
+          Name="BatteryMonitor"
+          DisplayName="Battery Monitor"
+          Description="Notebook battery monitor. Dashboard: http://localhost:8089"
+          Type="ownProcess"
+          Start="auto"
+          ErrorControl="normal"
+          Arguments="--web :8089 --db &quot;[DATADIR]battery.db&quot; --config &quot;[DATADIR]config.json&quot;"
+          Account="LocalSystem" />
+
+        <ServiceControl
+          Id="SvcControl"
+          Name="BatteryMonitor"
+          Start="install"
+          Stop="both"
+          Remove="uninstall"
+          Wait="yes" />
+      </Component>
+
+      <Component Id="CmpData" Directory="DATADIR" Guid="{B2345678-CDEF-0123-4567-890ABCDEF012}">
+        <CreateFolder />
+      </Component>
+
+    </ComponentGroup>
+
+  </Product>
+</Wix>

@@ -1,0 +1,871 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>電池監控</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:      #0f1117;
+  --surface: #1a1d27;
+  --border:  #2a2d3a;
+  --text:    #e8eaf0;
+  --muted:   #6b7280;
+  --green:   #22c55e;
+  --yellow:  #f59e0b;
+  --red:     #ef4444;
+  --blue:    #3b82f6;
+  --purple:  #a855f7;
+  --orange:  #f97316;
+  --radius:  14px;
+}
+
+body {
+  background: var(--bg); color: var(--text);
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  min-height: 100vh;
+  display: flex; flex-direction: column; align-items: center;
+  padding: 20px 14px 48px; gap: 14px;
+}
+
+h1 { font-size:.9rem; font-weight:500; color:var(--muted); letter-spacing:.08em; text-transform:uppercase; }
+
+/* Tabs */
+.tabs {
+  display:flex; gap:4px; background:var(--surface);
+  border:1px solid var(--border); border-radius:10px;
+  padding:4px; width:100%; max-width:760px;
+}
+.tab-btn {
+  flex:1; padding:8px 0; background:none; border:none;
+  border-radius:7px; color:var(--muted); font-size:.82rem; cursor:pointer;
+  transition:background .2s,color .2s;
+}
+.tab-btn.active { background:var(--bg); color:var(--text); font-weight:600; }
+.tab-pane { display:none; width:100%; max-width:760px; }
+.tab-pane.active { display:flex; flex-direction:column; gap:14px; }
+
+/* Card */
+.card { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:20px 22px; }
+.card-title { font-size:.72rem; color:var(--muted); text-transform:uppercase; letter-spacing:.06em; margin-bottom:14px; }
+.card-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; }
+
+/* Gauge */
+.gauge-wrap { position:relative; width:170px; height:170px; margin:0 auto 14px; }
+#gauge-svg { width:170px; height:170px; transform:rotate(-90deg); }
+.gauge-track { fill:none; stroke:var(--border); stroke-width:13; }
+#gauge-arc {
+  fill:none; stroke-width:13; stroke-linecap:round;
+  stroke-dasharray:427; stroke-dashoffset:427;
+  transition:stroke-dashoffset .8s ease,stroke .5s ease;
+}
+.gauge-center {
+  position:absolute; inset:0; display:flex; flex-direction:column;
+  align-items:center; justify-content:center; gap:2px;
+}
+#pct-label { font-size:2.6rem; font-weight:700; line-height:1; transition:color .5s; }
+#pct-unit  { font-size:.78rem; color:var(--muted); }
+
+/* Pills */
+.pills { display:flex; gap:7px; flex-wrap:wrap; justify-content:center; }
+.pill {
+  display:flex; align-items:center; gap:5px;
+  background:var(--bg); border:1px solid var(--border);
+  border-radius:999px; padding:4px 11px; font-size:.76rem; color:var(--muted);
+}
+.dot { width:7px; height:7px; border-radius:50%; flex-shrink:0; }
+.dot-green  { background:var(--green); box-shadow:0 0 5px var(--green); }
+.dot-yellow { background:var(--yellow); }
+.dot-red    { background:var(--red); box-shadow:0 0 5px var(--red); animation:pulse 1s infinite; }
+.dot-blue   { background:var(--blue); }
+.dot-purple { background:var(--purple); }
+.dot-orange { background:var(--orange); }
+.dot-muted  { background:var(--muted); }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+
+/* Canvases */
+canvas { display:block; width:100%; border-radius:6px; }
+#history-canvas { height:76px; }
+#cap-canvas     { height:130px; }
+#power-canvas   { height:120px; }
+
+/* Legend */
+.legend { display:flex; gap:14px; justify-content:center; flex-wrap:wrap; margin-top:10px; }
+.legend-item { display:flex; align-items:center; gap:5px; font-size:.7rem; color:var(--muted); }
+.legend-line { width:18px; height:2px; border-radius:2px; }
+
+/* Health gauge (report tab) */
+.health-row { display:flex; align-items:center; gap:24px; flex-wrap:wrap; }
+.hgauge-wrap { position:relative; width:150px; height:150px; flex-shrink:0; }
+#health-svg { width:150px; height:150px; transform:rotate(-90deg); }
+#health-arc {
+  fill:none; stroke-width:13; stroke-linecap:round;
+  stroke-dasharray:377; stroke-dashoffset:377;
+  transition:stroke-dashoffset 1s ease,stroke .5s ease;
+}
+.hgauge-center {
+  position:absolute; inset:0; display:flex; flex-direction:column;
+  align-items:center; justify-content:center; gap:2px;
+}
+#health-pct   { font-size:2rem; font-weight:700; line-height:1; }
+#health-label { font-size:.68rem; color:var(--muted); }
+.health-stats { flex:1; min-width:200px; }
+.stat-row {
+  display:flex; justify-content:space-between; align-items:center;
+  padding:7px 0; border-bottom:1px solid var(--border); font-size:.82rem;
+}
+.stat-row:last-child { border-bottom:none; }
+.stat-key   { color:var(--muted); }
+.stat-value { font-weight:600; }
+
+/* Power widget row */
+.power-row { display:flex; gap:12px; flex-wrap:wrap; }
+.power-box {
+  flex:1; min-width:120px; background:var(--bg);
+  border:1px solid var(--border); border-radius:10px;
+  padding:14px 16px; display:flex; flex-direction:column; gap:4px;
+}
+.power-box-label { font-size:.68rem; color:var(--muted); text-transform:uppercase; letter-spacing:.05em; }
+.power-box-value { font-size:1.5rem; font-weight:700; line-height:1; }
+.power-box-unit  { font-size:.72rem; color:var(--muted); }
+
+/* Table */
+.tbl-wrap { overflow-x:auto; }
+table { width:100%; border-collapse:collapse; font-size:.78rem; }
+th {
+  text-align:left; padding:7px 10px;
+  color:var(--muted); font-weight:500;
+  border-bottom:1px solid var(--border); white-space:nowrap;
+}
+td { padding:7px 10px; border-bottom:1px solid var(--border); white-space:nowrap; }
+tr:last-child td { border-bottom:none; }
+tr:hover td { background:#ffffff07; }
+td.clickable { cursor:pointer; color:var(--blue); text-decoration:underline dotted; }
+
+/* Chips */
+.chip {
+  display:inline-block; padding:2px 7px; border-radius:999px;
+  font-size:.7rem; font-weight:600;
+}
+.chip-green  { background:#22c55e22; color:var(--green); }
+.chip-yellow { background:#f59e0b22; color:var(--yellow); }
+.chip-red    { background:#ef444422; color:var(--red); }
+.chip-blue   { background:#3b82f622; color:var(--blue); }
+
+/* Mini bar */
+.bar-wrap { width:80px; height:6px; background:var(--border); border-radius:3px; overflow:hidden; display:inline-block; vertical-align:middle; }
+.bar-fill  { height:100%; border-radius:3px; }
+
+/* Footer */
+footer { font-size:.7rem; color:var(--muted); text-align:center; line-height:1.6; }
+#conn-dot {
+  width:7px; height:7px; border-radius:50%; background:var(--muted);
+  display:inline-block; margin-right:4px; transition:background .3s;
+}
+#conn-dot.live { background:var(--green); box-shadow:0 0 5px var(--green); }
+
+.no-data { color:var(--muted); font-size:.82rem; text-align:center; padding:20px 0; }
+.refresh-btn {
+  background:none; border:1px solid var(--border); color:var(--muted);
+  border-radius:6px; padding:3px 9px; cursor:pointer; font-size:.72rem;
+}
+</style>
+</head>
+<body>
+
+<h1>筆電電池監控</h1>
+
+<div class="tabs">
+  <button class="tab-btn active"  onclick="switchTab('live',this)">即時狀態</button>
+  <button class="tab-btn"         onclick="switchTab('power',this)">功率/電壓</button>
+  <button class="tab-btn"         onclick="switchTab('process',this)">程序 CPU</button>
+  <button class="tab-btn"         onclick="switchTab('report',this)">電池報表</button>
+</div>
+
+<!-- ═══════════════════════ TAB: 即時狀態 ═══ -->
+<div id="tab-live" class="tab-pane active">
+
+  <div class="card" style="align-items:center;gap:14px;">
+    <div class="gauge-wrap">
+      <svg id="gauge-svg" viewBox="0 0 170 170">
+        <circle class="gauge-track" cx="85" cy="85" r="68"/>
+        <circle id="gauge-arc"      cx="85" cy="85" r="68"/>
+      </svg>
+      <div class="gauge-center">
+        <span id="pct-label">--</span>
+        <span id="pct-unit">%</span>
+      </div>
+    </div>
+    <div class="pills">
+      <div class="pill"><span class="dot" id="ac-dot"></span><span id="ac-label">--</span></div>
+      <div class="pill" id="time-pill" style="display:none"><span class="dot dot-blue"></span><span id="time-left">--</span></div>
+      <div class="pill" id="volt-pill" style="display:none"><span class="dot dot-orange"></span><span id="volt-live">--</span></div>
+      <div class="pill" id="rate-pill" style="display:none"><span class="dot" id="rate-dot"></span><span id="rate-live">--</span></div>
+      <div class="pill" id="health-pill" style="display:none"><span class="dot dot-purple"></span><span id="health-live">--</span></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title" style="margin:0">歷史電量</span>
+      <span id="time-label" style="font-size:.72rem;color:var(--muted)">--</span>
+    </div>
+    <canvas id="history-canvas" width="720" height="76"></canvas>
+    <div class="legend">
+      <div class="legend-item"><div class="legend-line" style="background:var(--yellow)"></div> 警告 ({{.WarnLevel}}%)</div>
+      <div class="legend-item"><div class="legend-line" style="background:var(--red)"></div> 危急 ({{.CriticalLevel}}%)</div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ═══════════════════════ TAB: 功率/電壓 ═══ -->
+<div id="tab-power" class="tab-pane">
+
+  <!-- Live power boxes -->
+  <div class="card">
+    <div class="card-title">目前電氣狀態</div>
+    <div class="power-row">
+      <div class="power-box">
+        <span class="power-box-label">電壓</span>
+        <span class="power-box-value" id="pw-volt" style="color:var(--orange)">--</span>
+        <span class="power-box-unit">V</span>
+      </div>
+      <div class="power-box">
+        <span class="power-box-label">功率</span>
+        <span class="power-box-value" id="pw-rate" style="color:var(--blue)">--</span>
+        <span class="power-box-unit">W <span id="pw-dir"></span></span>
+      </div>
+      <div class="power-box">
+        <span class="power-box-label">目前容量</span>
+        <span class="power-box-value" id="pw-cap" style="color:var(--green)">--</span>
+        <span class="power-box-unit">mWh</span>
+      </div>
+      <div class="power-box">
+        <span class="power-box-label">剩餘時間</span>
+        <span class="power-box-value" id="pw-time" style="color:var(--muted);font-size:1.2rem">--</span>
+        <span class="power-box-unit"></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Power history chart -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title" style="margin:0">充放電率歷史</span>
+      <div style="display:flex;gap:8px;align-items:center">
+        <select id="power-hours" onchange="loadPower()" style="background:var(--bg);color:var(--muted);border:1px solid var(--border);border-radius:5px;padding:2px 6px;font-size:.72rem;">
+          <option value="6">6小時</option>
+          <option value="24" selected>24小時</option>
+          <option value="72">3天</option>
+          <option value="168">7天</option>
+        </select>
+        <button class="refresh-btn" onclick="loadPower()">重新整理</button>
+      </div>
+    </div>
+    <canvas id="power-canvas" width="720" height="120"></canvas>
+    <div class="legend">
+      <div class="legend-item"><div class="legend-line" style="background:var(--green)"></div> 充電 (+W)</div>
+      <div class="legend-item"><div class="legend-line" style="background:var(--red)"></div> 放電 (-W)</div>
+    </div>
+  </div>
+
+  <!-- Voltage history -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title" style="margin:0">電壓歷史</span>
+    </div>
+    <canvas id="volt-canvas" width="720" height="90"></canvas>
+  </div>
+
+</div>
+
+<!-- ═══════════════════════ TAB: 程序 CPU ═══ -->
+<div id="tab-process" class="tab-pane">
+
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title" style="margin:0">程序平均 CPU 佔用</span>
+      <div style="display:flex;gap:8px;align-items:center">
+        <select id="proc-hours" onchange="loadProcesses()" style="background:var(--bg);color:var(--muted);border:1px solid var(--border);border-radius:5px;padding:2px 6px;font-size:.72rem;">
+          <option value="1">1小時</option>
+          <option value="6">6小時</option>
+          <option value="24" selected>24小時</option>
+          <option value="72">3天</option>
+        </select>
+        <button class="refresh-btn" onclick="loadProcesses()">重新整理</button>
+      </div>
+    </div>
+    <div class="tbl-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>程序名稱</th>
+            <th>平均 CPU%</th>
+            <th>最高 CPU%</th>
+            <th>平均記憶體</th>
+            <th>記錄數</th>
+            <th>趨勢</th>
+          </tr>
+        </thead>
+        <tbody id="proc-tbody">
+          <tr><td colspan="6" class="no-data">切換至此分頁後自動載入</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Process timeline (shown when user clicks a process name) -->
+  <div class="card" id="proc-detail" style="display:none">
+    <div class="card-header">
+      <span class="card-title" style="margin:0">程序時序：<span id="proc-detail-name"></span></span>
+      <button class="refresh-btn" onclick="document.getElementById('proc-detail').style.display='none'">關閉</button>
+    </div>
+    <canvas id="proc-timeline-canvas" width="720" height="100"></canvas>
+  </div>
+
+</div>
+
+<!-- ═══════════════════════ TAB: 電池報表 ═══ -->
+<div id="tab-report" class="tab-pane">
+
+  <!-- Health -->
+  <div class="card">
+    <div class="card-title">電池健康狀態</div>
+    <div class="health-row">
+      <div class="hgauge-wrap">
+        <svg id="health-svg" viewBox="0 0 150 150">
+          <circle class="gauge-track" cx="75" cy="75" r="60" stroke-width="13"/>
+          <circle id="health-arc"     cx="75" cy="75" r="60"/>
+        </svg>
+        <div class="hgauge-center">
+          <span id="health-pct">--</span>
+          <span id="health-label">健康度</span>
+        </div>
+      </div>
+      <div class="health-stats">
+        <div class="stat-row"><span class="stat-key">原廠設計容量</span><span class="stat-value" id="s-designed">--</span></div>
+        <div class="stat-row"><span class="stat-key">目前最大容量</span><span class="stat-value" id="s-full">--</span></div>
+        <div class="stat-row"><span class="stat-key">容量損耗</span>    <span class="stat-value" id="s-loss">--</span></div>
+        <div class="stat-row"><span class="stat-key">充電循環次數</span><span class="stat-value" id="s-cycle">--</span></div>
+        <div class="stat-row"><span class="stat-key">記錄起始日期</span><span class="stat-value" id="s-first">--</span></div>
+        <div class="stat-row"><span class="stat-key">總記錄筆數</span> <span class="stat-value" id="s-total">--</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Capacity trend -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title" style="margin:0">容量趨勢（近 90 天）</span>
+      <span style="font-size:.7rem;color:var(--muted)">mWh</span>
+    </div>
+    <canvas id="cap-canvas" width="720" height="130"></canvas>
+    <div class="legend">
+      <div class="legend-item"><div class="legend-line" style="background:var(--muted);border-top:2px dashed var(--muted);height:0"></div> 設計容量</div>
+      <div class="legend-item"><div class="legend-line" style="background:var(--blue)"></div> 實際容量</div>
+    </div>
+  </div>
+
+  <!-- Daily stats table -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title" style="margin:0">每日使用統計（近 30 天）</span>
+      <button class="refresh-btn" onclick="loadReport()">重新整理</button>
+    </div>
+    <div class="tbl-wrap">
+      <table>
+        <thead>
+          <tr><th>日期</th><th>平均電量</th><th>最低</th><th>最高</th><th>健康度</th><th>記錄數</th></tr>
+        </thead>
+        <tbody id="daily-tbody"><tr><td colspan="6" class="no-data">載入中...</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+
+<footer>
+  <span id="conn-dot"></span><span id="conn-label">連線中...</span><br>
+  上次更新：<span id="last-update">--</span>
+</footer>
+
+<script>
+// ── Constants ─────────────────────────────────────────────────────────────────
+const WARN     = {{.WarnLevel}};
+const CRITICAL = {{.CriticalLevel}};
+const FULL     = {{.FullLevel}};
+const LIVE_CIRC = 2 * Math.PI * 68;
+const HLTH_CIRC = 2 * Math.PI * 60;
+
+// ── DOM refs ──────────────────────────────────────────────────────────────────
+const $pct      = document.getElementById('pct-label');
+const $arc      = document.getElementById('gauge-arc');
+const $acDot    = document.getElementById('ac-dot');
+const $acLabel  = document.getElementById('ac-label');
+const $timePill = document.getElementById('time-pill');
+const $timeLeft = document.getElementById('time-left');
+const $voltPill = document.getElementById('volt-pill');
+const $voltLive = document.getElementById('volt-live');
+const $ratePill = document.getElementById('rate-pill');
+const $rateLive = document.getElementById('rate-live');
+const $rateDot  = document.getElementById('rate-dot');
+const $healthPill = document.getElementById('health-pill');
+const $healthLive = document.getElementById('health-live');
+const $timeLabel= document.getElementById('time-label');
+const $lastUpd  = document.getElementById('last-update');
+const $connDot  = document.getElementById('conn-dot');
+const $connLbl  = document.getElementById('conn-label');
+const liveCanvas  = document.getElementById('history-canvas');
+const liveCtx     = liveCanvas.getContext('2d');
+const capCanvas   = document.getElementById('cap-canvas');
+const capCtx      = capCanvas.getContext('2d');
+const powerCanvas = document.getElementById('power-canvas');
+const powerCtx    = powerCanvas.getContext('2d');
+const voltCanvas  = document.getElementById('volt-canvas');
+const voltCtx     = voltCanvas.getContext('2d');
+const procTLCanvas = document.getElementById('proc-timeline-canvas');
+const procTLCtx    = procTLCanvas.getContext('2d');
+
+// ── Live power boxes ──────────────────────────────────────────────────────────
+const $pwVolt = document.getElementById('pw-volt');
+const $pwRate = document.getElementById('pw-rate');
+const $pwDir  = document.getElementById('pw-dir');
+const $pwCap  = document.getElementById('pw-cap');
+const $pwTime = document.getElementById('pw-time');
+
+// ── Colour helpers ────────────────────────────────────────────────────────────
+function cssVar(n) { return getComputedStyle(document.documentElement).getPropertyValue(n).trim(); }
+function battColor(p) {
+  if (p <= CRITICAL) return cssVar('--red');
+  if (p <= WARN)     return cssVar('--yellow');
+  if (p >= FULL)     return cssVar('--blue');
+  return cssVar('--green');
+}
+function healthColor(h) {
+  return h >= 80 ? cssVar('--green') : h >= 60 ? cssVar('--yellow') : cssVar('--red');
+}
+function healthChip(h) {
+  const cls = h >= 80 ? 'chip-green' : h >= 60 ? 'chip-yellow' : 'chip-red';
+  return `<span class="chip ${cls}">${h.toFixed(1)}%</span>`;
+}
+
+// ── Tab switching ─────────────────────────────────────────────────────────────
+let _activeTab = 'status';
+function switchTab(id, btn) {
+  document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('tab-' + id).classList.add('active');
+  btn.classList.add('active');
+  _activeTab = id;
+  if (id === 'report')  loadReport();
+  if (id === 'power')   loadPower();
+  if (id === 'process') loadProcesses();
+}
+// Auto-refresh: reload power chart every 60s when power tab is visible.
+setInterval(() => { if (_activeTab === 'power') loadPower(); }, 60000);
+
+// ── Live gauge ────────────────────────────────────────────────────────────────
+function setLiveGauge(pct) {
+  const offset = LIVE_CIRC - (pct / 100) * LIVE_CIRC;
+  $arc.style.strokeDashoffset = offset;
+  $arc.style.stroke = battColor(pct);
+  $pct.style.color  = battColor(pct);
+  $pct.textContent  = pct;
+}
+
+// ── History ring buffer ───────────────────────────────────────────────────────
+const MAX_PTS = 60;
+const history = [];
+function pushHistory(pct, ts) {
+  history.push({ pct, ts: ts ? new Date(ts * 1000) : new Date() });
+  if (history.length > MAX_PTS) history.shift();
+}
+
+function drawHistory() {
+  const W = liveCanvas.offsetWidth * devicePixelRatio || 720;
+  const H = liveCanvas.offsetHeight * devicePixelRatio || 76;
+  liveCanvas.width = W; liveCanvas.height = H;
+  liveCtx.clearRect(0, 0, W, H);
+  if (history.length < 2) return;
+  const xStep = W / (MAX_PTS - 1), pad = 5;
+  function thLine(v, col) {
+    const y = H - pad - (v / 100) * (H - pad * 2);
+    liveCtx.beginPath(); liveCtx.setLineDash([4,4]);
+    liveCtx.strokeStyle = col+'66'; liveCtx.lineWidth=1;
+    liveCtx.moveTo(0,y); liveCtx.lineTo(W,y); liveCtx.stroke();
+    liveCtx.setLineDash([]);
+  }
+  thLine(WARN,'#f59e0b'); thLine(CRITICAL,'#ef4444');
+  const col = battColor(history[history.length-1].pct);
+  liveCtx.beginPath();
+  history.forEach((d,i) => {
+    const x=(MAX_PTS-history.length+i)*xStep, y=H-pad-(d.pct/100)*(H-pad*2);
+    i===0?liveCtx.moveTo(x,y):liveCtx.lineTo(x,y);
+  });
+  liveCtx.lineTo((MAX_PTS-1)*xStep,H); liveCtx.lineTo((MAX_PTS-history.length)*xStep,H);
+  liveCtx.closePath();
+  const g=liveCtx.createLinearGradient(0,0,0,H);
+  g.addColorStop(0,col+'55'); g.addColorStop(1,col+'00');
+  liveCtx.fillStyle=g; liveCtx.fill();
+  liveCtx.beginPath();
+  history.forEach((d,i) => {
+    const x=(MAX_PTS-history.length+i)*xStep, y=H-pad-(d.pct/100)*(H-pad*2);
+    i===0?liveCtx.moveTo(x,y):liveCtx.lineTo(x,y);
+  });
+  liveCtx.strokeStyle=col; liveCtx.lineWidth=2; liveCtx.lineJoin='round'; liveCtx.stroke();
+}
+
+// ── Live update ───────────────────────────────────────────────────────────────
+function update(data) {
+  setLiveGauge(data.percent);
+  if (data.charging) {
+    $acDot.className='dot dot-blue'; $acLabel.textContent='充電中';
+  } else if (data.ac_online) {
+    $acDot.className='dot dot-green'; $acLabel.textContent='已插電';
+  } else {
+    $acDot.className=data.percent<=CRITICAL?'dot dot-red':'dot dot-yellow';
+    $acLabel.textContent='使用電池';
+  }
+  if (data.time_left) { $timePill.style.display='flex'; $timeLeft.textContent='剩餘 '+data.time_left; }
+  else                { $timePill.style.display='none'; }
+
+  if (data.voltage_mv > 0) {
+    $voltPill.style.display='flex';
+    $voltLive.textContent = (data.voltage_mv/1000).toFixed(2)+' V';
+  }
+  if (data.rate_mw !== 0) {
+    $ratePill.style.display='flex';
+    const w = Math.abs(data.rate_mw)/1000;
+    $rateLive.textContent = w.toFixed(2)+' W';
+    if (data.rate_mw > 0) { $rateDot.className='dot dot-green'; }
+    else                  { $rateDot.className='dot dot-red'; }
+  }
+  if (data.health > 0) {
+    $healthPill.style.display='flex';
+    $healthLive.textContent='健康 '+data.health.toFixed(1)+'%';
+  }
+
+  // Power tab live boxes
+  if (data.voltage_mv > 0) {
+    $pwVolt.textContent = (data.voltage_mv/1000).toFixed(3);
+    $pwVolt.style.color = cssVar('--orange');
+  } else {
+    $pwVolt.textContent = '不支援';
+    $pwVolt.style.color = cssVar('--muted');
+    $pwVolt.style.fontSize = '1rem';
+  }
+  if (data.rate_mw !== 0) {
+    $pwRate.textContent = (Math.abs(data.rate_mw)/1000).toFixed(2);
+    if (data.rate_mw > 0) { $pwRate.style.color=cssVar('--green'); $pwDir.textContent='(充電)'; }
+    else                  { $pwRate.style.color=cssVar('--red');   $pwDir.textContent='(放電)'; }
+    const srcLabel = {'ntquery':'硬體','ioctl':'硬體','estimated':'估算'}[data.rate_source] || '';
+    if (srcLabel) $pwDir.textContent += ' [' + srcLabel + ']';
+  } else {
+    $pwRate.textContent = '偵測中';
+    $pwRate.style.color = cssVar('--muted');
+  }
+  if (data.cap_now_mwh > 0) $pwCap.textContent = data.cap_now_mwh.toLocaleString();
+  else { $pwCap.textContent='偵測中'; $pwCap.style.color=cssVar('--muted'); }
+  if (data.time_left) $pwTime.textContent = data.time_left;
+  else { $pwTime.textContent='--'; }
+
+  pushHistory(data.percent);
+  drawHistory();
+  const now = new Date();
+  $timeLabel.textContent = now.toLocaleTimeString('zh-Hant');
+  $lastUpd.textContent   = now.toLocaleTimeString('zh-Hant');
+}
+
+// ── Generic chart helpers ─────────────────────────────────────────────────────
+function setupCanvas(canvas) {
+  const W = (canvas.offsetWidth || 720) * devicePixelRatio;
+  const H = (canvas.offsetHeight || 120) * devicePixelRatio;
+  canvas.width = W; canvas.height = H;
+  return [canvas.getContext('2d'), W, H];
+}
+
+function drawLineArea(ctx, W, H, pts, getY, col, minY, maxY, pad) {
+  if (!pts || pts.length < 2) return;
+  const n = pts.length;
+  function px(i) { return pad.l + (i/(n-1))*(W-pad.l-pad.r); }
+  function py(v) { return pad.t + (1-(v-minY)/(maxY-minY||1))*(H-pad.t-pad.b); }
+  ctx.beginPath();
+  pts.forEach((p,i) => { const y=py(getY(p)); i===0?ctx.moveTo(px(i),y):ctx.lineTo(px(i),y); });
+  ctx.lineTo(px(n-1),H-pad.b); ctx.lineTo(px(0),H-pad.b); ctx.closePath();
+  const g=ctx.createLinearGradient(0,pad.t,0,H-pad.b);
+  g.addColorStop(0,col+'44'); g.addColorStop(1,col+'06');
+  ctx.fillStyle=g; ctx.fill();
+  ctx.beginPath();
+  pts.forEach((p,i) => { const y=py(getY(p)); i===0?ctx.moveTo(px(i),y):ctx.lineTo(px(i),y); });
+  ctx.strokeStyle=col; ctx.lineWidth=1.5; ctx.lineJoin='round'; ctx.stroke();
+}
+
+function drawYAxis(ctx, W, H, minY, maxY, pad, fmt) {
+  ctx.fillStyle=cssVar('--muted');
+  ctx.font=`${10*devicePixelRatio}px Segoe UI,sans-serif`;
+  ctx.textAlign='right';
+  for (let t=0; t<=4; t++) {
+    const v = minY + (maxY-minY)*t/4;
+    const y = pad.t + (H-pad.t-pad.b)*(1-t/4);
+    ctx.fillText(fmt(v), pad.l-4, y+3);
+    ctx.beginPath(); ctx.strokeStyle=cssVar('--border'); ctx.lineWidth=.5;
+    ctx.moveTo(pad.l,y); ctx.lineTo(W-pad.r,y); ctx.stroke();
+  }
+}
+
+function drawXDateLabels(ctx, W, H, pts, getTS, pad) {
+  if (!pts || pts.length < 2) return;
+  ctx.fillStyle=cssVar('--muted');
+  ctx.font=`${9*devicePixelRatio}px Segoe UI,sans-serif`;
+  ctx.textAlign='center';
+  const n = pts.length;
+  const indices = [0, Math.floor(n/4), Math.floor(n/2), Math.floor(3*n/4), n-1];
+  indices.forEach(i => {
+    const x = pad.l + (i/(n-1))*(W-pad.l-pad.r);
+    const d = new Date(getTS(pts[i])*1000);
+    ctx.fillText(d.toLocaleString('zh-Hant',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}), x, H-2);
+  });
+}
+
+// ── Power chart ───────────────────────────────────────────────────────────────
+let _powerPts = [];
+
+function drawPowerChart(pts) {
+  _powerPts = pts || [];
+  const [ctx, W, H] = setupCanvas(powerCanvas);
+  ctx.clearRect(0,0,W,H);
+  if (!pts.length) { noData(ctx,W,H,'無功率記錄'); return; }
+
+  // Bucket into at most 48 bars so each bar is clearly visible.
+  const hours = parseInt(document.getElementById('power-hours').value) || 24;
+  const numBuckets = Math.min(48, Math.max(12, hours));
+  const tMin = pts[0].ts, tMax = pts[pts.length-1].ts;
+  const tSpan = tMax - tMin || 1;
+  const buckets = Array.from({length: numBuckets}, (_,i) => ({
+    sum: 0, count: 0, ts: tMin + (i + 0.5) / numBuckets * tSpan
+  }));
+  pts.forEach(p => {
+    const bi = Math.min(numBuckets-1, Math.floor((p.ts - tMin) / tSpan * numBuckets));
+    buckets[bi].sum += p.rate_mw / 1000;
+    buckets[bi].count++;
+  });
+  const bars = buckets.filter(b => b.count > 0).map(b => ({val: b.sum/b.count, ts: b.ts}));
+  if (!bars.length) { noData(ctx,W,H,'無功率記錄'); return; }
+
+  const pad = {t:8,r:8,b:24,l:46};
+  const vals = bars.map(b=>b.val);
+  const minY = Math.min(...vals, 0) * 1.1;
+  const maxY = Math.max(...vals, 0) * 1.1 || 5;
+  function py(v) { return pad.t+(1-(v-minY)/(maxY-minY))*(H-pad.t-pad.b); }
+
+  drawYAxis(ctx,W,H,minY,maxY,pad,v=>v.toFixed(1)+'W');
+  // zero line
+  const z = py(0);
+  ctx.beginPath(); ctx.strokeStyle=cssVar('--border'); ctx.lineWidth=1;
+  ctx.moveTo(pad.l,z); ctx.lineTo(W-pad.r,z); ctx.stroke();
+
+  // Lollipop chart: stick from zero line + circle at value
+  const chartW = W - pad.l - pad.r;
+  const slot = chartW / numBuckets;
+  const r = Math.max(2.5, Math.min(5, slot * 0.35));
+  bars.forEach(b => {
+    const frac = (b.ts - tMin) / tSpan;
+    const cx = pad.l + frac * chartW + slot * 0.5;
+    const cy = py(b.val);
+    const col = b.val >= 0 ? cssVar('--green') : cssVar('--red');
+    // Stick
+    ctx.beginPath();
+    ctx.strokeStyle = col + 'aa';
+    ctx.lineWidth = Math.max(1, r * 0.5);
+    ctx.moveTo(cx, z);
+    ctx.lineTo(cx, cy);
+    ctx.stroke();
+    // Circle
+    ctx.beginPath();
+    ctx.fillStyle = col;
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fill();
+  });
+  drawXDateLabels(ctx,W,H,bars,b=>b.ts,pad);
+}
+
+function drawVoltChart(pts) {
+  const [ctx, W, H] = setupCanvas(voltCanvas);
+  ctx.clearRect(0,0,W,H);
+  const vpts = (pts||[]).filter(p=>p.voltage_mv>0);
+  if (vpts.length < 2) { noData(ctx,W,H,'無電壓記錄'); return; }
+  const pad = {t:8,r:8,b:24,l:50};
+  const volts = vpts.map(p=>p.voltage_mv/1000);
+  const minY = Math.min(...volts)*0.998;
+  const maxY = Math.max(...volts)*1.002;
+  drawYAxis(ctx,W,H,minY,maxY,pad,v=>v.toFixed(2)+'V');
+  drawLineArea(ctx,W,H,vpts,p=>p.voltage_mv/1000,cssVar('--orange'),minY,maxY,pad);
+  drawXDateLabels(ctx,W,H,vpts,p=>p.ts,pad);
+}
+
+function loadPower() {
+  const hours = parseInt(document.getElementById('power-hours').value);
+  fetch(`/api/report/power?hours=${hours}`)
+    .then(r=>r.json())
+    .then(pts => {
+      if (!Array.isArray(pts)) pts=[];
+      drawPowerChart(pts);
+      drawVoltChart(pts);
+    })
+    .catch(()=>{});
+}
+
+// ── Process charts ────────────────────────────────────────────────────────────
+function renderProcessTable(avgs) {
+  const tbody = document.getElementById('proc-tbody');
+  if (!avgs || avgs.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="6" class="no-data">尚無程序記錄</td></tr>';
+    return;
+  }
+  const maxCPU = avgs[0].avg_cpu || 1;
+  tbody.innerHTML = avgs.map(a => {
+    const barW = Math.round(a.avg_cpu/maxCPU*80);
+    const barCol = a.avg_cpu > 30 ? cssVar('--red') : a.avg_cpu > 10 ? cssVar('--yellow') : cssVar('--blue');
+    return `<tr>
+      <td class="clickable" onclick="loadProcTimeline('${escHtml(a.name)}')">${escHtml(a.name)}</td>
+      <td>${a.avg_cpu.toFixed(2)}%</td>
+      <td>${a.max_cpu.toFixed(2)}%</td>
+      <td>${a.avg_mem.toFixed(0)} MB</td>
+      <td>${a.samples}</td>
+      <td><div class="bar-wrap"><div class="bar-fill" style="width:${barW}px;background:${barCol}"></div></div></td>
+    </tr>`;
+  }).join('');
+}
+
+function loadProcesses() {
+  const hours = parseInt(document.getElementById('proc-hours').value);
+  fetch(`/api/report/processes?hours=${hours}&limit=25`)
+    .then(r=>r.json())
+    .then(avgs => renderProcessTable(Array.isArray(avgs)?avgs:[]))
+    .catch(()=>{});
+}
+
+function loadProcTimeline(name) {
+  const hours = parseInt(document.getElementById('proc-hours').value);
+  document.getElementById('proc-detail').style.display = 'block';
+  document.getElementById('proc-detail-name').textContent = name;
+  fetch(`/api/report/proctimeline?name=${encodeURIComponent(name)}&hours=${hours}`)
+    .then(r=>r.json())
+    .then(pts => drawProcTimeline(pts||[]))
+    .catch(()=>{});
+}
+
+function drawProcTimeline(pts) {
+  const [ctx, W, H] = setupCanvas(procTLCanvas);
+  ctx.clearRect(0,0,W,H);
+  if (pts.length < 2) { noData(ctx,W,H,'無資料'); return; }
+  const pad = {t:8,r:8,b:24,l:40};
+  const cpus = pts.map(p=>p.cpu_pct);
+  const minY=0, maxY=Math.max(...cpus)*1.1||5;
+  drawYAxis(ctx,W,H,minY,maxY,pad,v=>v.toFixed(1)+'%');
+  drawLineArea(ctx,W,H,pts,p=>p.cpu_pct,cssVar('--blue'),minY,maxY,pad);
+  drawXDateLabels(ctx,W,H,pts,p=>p.ts,pad);
+}
+
+// ── Report tab ────────────────────────────────────────────────────────────────
+function setHealthGauge(h) {
+  const arc = document.getElementById('health-arc');
+  const pctEl = document.getElementById('health-pct');
+  const off = HLTH_CIRC - (Math.min(h,100)/100)*HLTH_CIRC;
+  arc.style.strokeDashoffset = off;
+  arc.style.stroke = healthColor(h);
+  pctEl.style.color = healthColor(h);
+  pctEl.textContent = h.toFixed(1)+'%';
+}
+
+function drawCapChart(pts) {
+  const [ctx, W, H] = setupCanvas(capCanvas);
+  ctx.clearRect(0,0,W,H);
+  if (!pts || pts.length < 2) { noData(ctx,W,H,'資料不足（需至少 2 天記錄）'); return; }
+  const pad = {t:12,r:8,b:24,l:52};
+  const all = pts.flatMap(p=>[p.full_cap,p.designed_cap]).filter(v=>v>0);
+  const minY = Math.min(...all)*0.97, maxY = Math.max(...all)*1.01;
+  drawYAxis(ctx,W,H,minY,maxY,pad,v=>Math.round(v).toLocaleString());
+  const n=pts.length;
+  function px(i){return pad.l+(i/(n-1))*(W-pad.l-pad.r);}
+  function py(v){return pad.t+(1-(v-minY)/(maxY-minY||1))*(H-pad.t-pad.b);}
+  // designed dashed
+  ctx.beginPath(); ctx.setLineDash([5,5]);
+  ctx.strokeStyle=cssVar('--muted')+'88'; ctx.lineWidth=1.5;
+  pts.forEach((p,i)=>{ if(p.designed_cap>0){i===0?ctx.moveTo(px(i),py(p.designed_cap)):ctx.lineTo(px(i),py(p.designed_cap));} });
+  ctx.stroke(); ctx.setLineDash([]);
+  // full filled
+  drawLineArea(ctx,W,H,pts,p=>p.full_cap,cssVar('--blue'),minY,maxY,pad);
+  drawXDateLabels(ctx,W,H,pts,p=>new Date(p.date).getTime()/1000,pad);
+}
+
+function renderDailyTable(stats) {
+  const tbody = document.getElementById('daily-tbody');
+  if (!stats||stats.length===0) { tbody.innerHTML='<tr><td colspan="6" class="no-data">尚無記錄</td></tr>'; return; }
+  tbody.innerHTML = stats.map(d=>{
+    return `<tr>
+      <td>${d.date}</td>
+      <td>${d.avg_pct.toFixed(1)}%</td>
+      <td>${d.min_pct}%</td>
+      <td>${d.max_pct}%</td>
+      <td>${d.health>0?healthChip(d.health):'–'}</td>
+      <td>${d.readings}</td>
+    </tr>`;
+  }).join('');
+}
+
+function loadReport() {
+  fetch('/api/report/summary').then(r=>r.json()).then(sum=>{
+    if (sum.error||!sum) return;
+    if (sum.health>0) {
+      setHealthGauge(sum.health);
+      const loss = sum.designed_cap>0?((1-sum.full_cap/sum.designed_cap)*100).toFixed(1)+'%':'–';
+      document.getElementById('s-designed').textContent = sum.designed_cap>0?sum.designed_cap.toLocaleString()+' mWh':'–';
+      document.getElementById('s-full').textContent     = sum.full_cap>0?sum.full_cap.toLocaleString()+' mWh':'–';
+      document.getElementById('s-loss').textContent     = loss;
+      document.getElementById('s-cycle').textContent    = sum.cycle_count>0?sum.cycle_count+' 次':'不支援';
+      document.getElementById('s-first').textContent    = sum.first_date||'–';
+      document.getElementById('s-total').textContent    = sum.total_readings.toLocaleString()+' 筆';
+    }
+  }).catch(()=>{});
+  fetch('/api/report/capacity?days=90').then(r=>r.json()).then(pts=>drawCapChart(Array.isArray(pts)?pts:[])).catch(()=>drawCapChart([]));
+  fetch('/api/report/daily?days=30').then(r=>r.json()).then(s=>renderDailyTable(Array.isArray(s)?s:[])).catch(()=>renderDailyTable([]));
+}
+
+// ── Utilities ─────────────────────────────────────────────────────────────────
+function noData(ctx, W, H, msg) {
+  ctx.fillStyle=cssVar('--muted'); ctx.textAlign='center';
+  ctx.font=`${13*devicePixelRatio}px Segoe UI,sans-serif`;
+  ctx.fillText(msg, W/2, H/2);
+}
+function escHtml(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+// ── SSE ───────────────────────────────────────────────────────────────────────
+function connect() {
+  const es = new EventSource('/api/stream');
+  es.onopen = () => { $connDot.className='live'; $connLbl.textContent='即時串流'; };
+  es.onmessage = (e) => { try { update(JSON.parse(e.data)); } catch{} };
+  es.onerror = () => {
+    $connDot.className=''; $connLbl.textContent='重新連線中...';
+    es.close(); setTimeout(connect,3000);
+  };
+}
+
+// ── Boot ──────────────────────────────────────────────────────────────────────
+fetch('/api/report/recent?n=60')
+  .then(r=>r.json())
+  .then(rows=>{ if(Array.isArray(rows)) rows.forEach(r=>pushHistory(r.percent,r.ts)); drawHistory(); })
+  .catch(()=>{});
+
+fetch('/api/status').then(r=>r.json()).then(update).catch(()=>{});
+connect();
+window.addEventListener('resize', ()=>{
+  drawHistory();
+  if (_powerPts.length) { drawPowerChart(_powerPts); drawVoltChart(_powerPts); }
+});
+</script>
+</body>
+</html>
