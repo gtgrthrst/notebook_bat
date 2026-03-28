@@ -165,6 +165,52 @@ Requires [WiX Toolset v3.14](https://github.com/wixtoolset/wix3/releases).
 
 ---
 
+## 記錄頻率 / Recording Frequency
+
+監控迴圈依電量自動調整輪詢間隔，並在每次輪詢後將資料寫入 SQLite。
+The monitor loop adapts its polling interval based on battery level and writes to SQLite on every poll.
+
+| 電量狀態 / State | 條件 / Condition | 間隔 / Interval | 每小時筆數 / Records/hr |
+|----------------|-----------------|----------------|------------------------|
+| 正常 Normal     | > 30 %          | 60 秒 / 60 s   | 60                     |
+| 低電 Warn       | ≤ 30 %          | 30 秒 / 30 s   | 120                    |
+| 危急 Critical   | ≤ 15 %          | 15 秒 / 15 s   | 240                    |
+
+每筆記錄包含 / Each record contains:
+
+| 欄位 / Field    | 說明 / Description              |
+|----------------|--------------------------------|
+| `percent`      | 電量百分比 Battery percentage    |
+| `ac`           | 是否接電源 AC connected          |
+| `charging`     | 是否充電中 Charging status        |
+| `secs_left`    | 預估剩餘秒數 Estimated seconds left |
+| `voltage_mv`   | 電壓 mV（WMI）                   |
+| `rate_mw`      | 功率 mW，正=充電，負=放電           |
+| `cap_now_mwh`  | 目前容量 mWh Current capacity     |
+| `full_cap`     | 滿充容量 mWh Full charge capacity |
+| `designed_cap` | 設計容量 mWh Design capacity      |
+| `cycle_count`  | 循環次數 Cycle count              |
+
+程序快照（`proc_snapshots`）與電量記錄同頻率，每筆記錄前 15 名 CPU 佔用程序。
+Process snapshots (`proc_snapshots`) are recorded at the same frequency, capturing the top 15 CPU-consuming processes per poll.
+
+**自訂間隔 / Customise intervals**
+
+執行 `.\battery-monitor.exe --init` 產生 `config.json` 後修改：
+Run `.\battery-monitor.exe --init` to generate `config.json`, then edit:
+
+```json
+{
+  "normal_interval":   "60s",
+  "warn_interval":     "30s",
+  "critical_interval": "15s",
+  "warn_level":        30,
+  "critical_level":    15
+}
+```
+
+---
+
 ## 架構說明 / Architecture
 
 ```
