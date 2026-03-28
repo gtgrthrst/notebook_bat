@@ -2,6 +2,8 @@
 
 > Windows ARM (Qualcomm Snapdragon) 筆電電量監控服務
 > A real-time battery monitoring service for Windows ARM laptops
+>
+
 <img width="1014" height="902" alt="image" src="https://github.com/user-attachments/assets/02ed1505-c982-46bb-a715-38b1fce41f7c" />
 
 ---
