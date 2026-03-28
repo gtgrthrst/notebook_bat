@@ -1,5 +1,7 @@
 battery-monitor.exe
+battery-monitor.exe~
 battery-monitor-setup.msi
+battery-monitor-setup.wixpdb
 battery.db
 config.json
 installer/*.wixobj
@@ -7,3 +9,5 @@ installer/*.wixpdb
 *.db
 *.exe
 *.msi
+*.wixpdb
+.claude/
