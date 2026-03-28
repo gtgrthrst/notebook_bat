@@ -2,6 +2,7 @@
 
 > Windows ARM (Qualcomm Snapdragon) 筆電電量監控服務
 > A real-time battery monitoring service for Windows ARM laptops
+<img width="1014" height="902" alt="image" src="https://github.com/user-attachments/assets/02ed1505-c982-46bb-a715-38b1fce41f7c" />
 
 ---
 
@@ -94,6 +95,7 @@ powershell -ExecutionPolicy Bypass -File uninstall.ps1
 ---
 
 ## Web 儀表板 / Dashboard
+<img width="1016" height="920" alt="image" src="https://github.com/user-attachments/assets/4dded312-6ebf-42f9-898c-2b9ecc476548" />
 
 啟動後開啟瀏覽器 / Open browser after starting:
 
