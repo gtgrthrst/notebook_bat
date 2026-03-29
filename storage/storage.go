@@ -202,6 +202,7 @@ func (s *Store) GetSummary() (Summary, error) {
 }
 
 func (s *Store) DailyStats(days int) ([]DailyStat, error) {
+	cutoff := time.Now().Unix() - int64(days)*86400
 	rows, err := s.db.Query(`
 		WITH last_cap AS (
 			SELECT
@@ -211,7 +212,7 @@ func (s *Store) DailyStats(days int) ([]DailyStat, error) {
 					PARTITION BY date(ts,'unixepoch','localtime') ORDER BY ts DESC
 				) AS rn
 			FROM readings
-			WHERE ts >= strftime('%s','now') - ? * 86400
+			WHERE ts >= ?
 		)
 		SELECT
 			a.day,
@@ -224,12 +225,12 @@ func (s *Store) DailyStats(days int) ([]DailyStat, error) {
 		FROM readings r
 		JOIN (
 			SELECT DISTINCT date(ts,'unixepoch','localtime') AS day
-			FROM readings WHERE ts >= strftime('%s','now') - ? * 86400
+			FROM readings WHERE ts >= ?
 		) a ON date(r.ts,'unixepoch','localtime') = a.day
 		LEFT JOIN last_cap c ON c.day = a.day AND c.rn = 1
 		GROUP BY a.day
 		ORDER BY a.day DESC
-	`, days, days)
+	`, cutoff, cutoff)
 	if err != nil {
 		return nil, err
 	}
@@ -250,6 +251,7 @@ func (s *Store) DailyStats(days int) ([]DailyStat, error) {
 }
 
 func (s *Store) CapacityHistory(days int) ([]CapacityPoint, error) {
+	cutoff := time.Now().Unix() - int64(days)*86400
 	rows, err := s.db.Query(`
 		SELECT date(ts,'unixepoch','localtime'), full_cap, designed_cap
 		FROM readings
@@ -257,11 +259,11 @@ func (s *Store) CapacityHistory(days int) ([]CapacityPoint, error) {
 		  AND ts IN (
 			SELECT MAX(ts) FROM readings
 			WHERE designed_cap > 0
-			  AND ts >= strftime('%s','now') - ? * 86400
+			  AND ts >= ?
 			GROUP BY date(ts,'unixepoch','localtime')
 		  )
 		ORDER BY ts ASC
-	`, days)
+	`, cutoff)
 	if err != nil {
 		return nil, err
 	}
@@ -289,18 +291,18 @@ func (s *Store) PowerHistory(hours int) ([]PowerPoint, error) {
 	if stride < 1 {
 		stride = 1
 	}
+	cutoff := time.Now().Unix() - int64(hours)*3600
 	rows, err := s.db.Query(`
 		SELECT ts, voltage_mv, rate_mw, cap_now_mwh, percent
 		FROM (
 			SELECT ts, voltage_mv, rate_mw, cap_now_mwh, percent,
 			       ROW_NUMBER() OVER (ORDER BY ts) AS rn
 			FROM readings
-			WHERE ts >= strftime('%s','now') - ? * 3600
-			  AND (voltage_mv > 0 OR rate_mw != 0)
+			WHERE ts >= ?
 		)
 		WHERE rn % ? = 1
 		ORDER BY ts ASC
-	`, hours, stride)
+	`, cutoff, stride)
 	if err != nil {
 		return nil, err
 	}
@@ -319,15 +321,16 @@ func (s *Store) PowerHistory(hours int) ([]PowerPoint, error) {
 // TopProcesses returns the top `limit` processes by average CPU% over the last
 // `hours` hours.
 func (s *Store) TopProcesses(hours, limit int) ([]ProcessAvg, error) {
+	cutoff := time.Now().Unix() - int64(hours)*3600
 	rows, err := s.db.Query(`
 		SELECT name, ROUND(AVG(cpu_pct),2), ROUND(MAX(cpu_pct),2),
 		       ROUND(AVG(mem_mb),1), COUNT(*)
 		FROM proc_snapshots
-		WHERE ts >= strftime('%s','now') - ? * 3600
+		WHERE ts >= ?
 		GROUP BY name
 		ORDER BY AVG(cpu_pct) DESC
 		LIMIT ?
-	`, hours, limit)
+	`, cutoff, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -345,13 +348,14 @@ func (s *Store) TopProcesses(hours, limit int) ([]ProcessAvg, error) {
 
 // ProcessTimeline returns hourly CPU% samples for a named process.
 func (s *Store) ProcessTimeline(name string, hours int) ([]ProcTimePoint, error) {
+	cutoff := time.Now().Unix() - int64(hours)*3600
 	rows, err := s.db.Query(`
 		SELECT ts, cpu_pct, mem_mb
 		FROM proc_snapshots
 		WHERE name = ?
-		  AND ts >= strftime('%s','now') - ? * 3600
+		  AND ts >= ?
 		ORDER BY ts ASC
-	`, name, hours)
+	`, name, cutoff)
 	if err != nil {
 		return nil, err
 	}
@@ -394,6 +398,68 @@ func (s *Store) RecentReadings(n int) ([]RawReading, error) {
 	}
 	for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {
 		out[i], out[j] = out[j], out[i]
+	}
+	return out, rows.Err()
+}
+
+// FullReading is one row of data used for CSV export.
+type FullReading struct {
+	TS          int64
+	Percent     int
+	AC          bool
+	Charging    bool
+	SecsLeft    int
+	DesignedCap int
+	FullCap     int
+	CycleCount  int
+	VoltageMV   int
+	RateMW      int
+	CapNowMWh   int
+}
+
+// AvailableDates returns all distinct local dates that have readings, newest first.
+func (s *Store) AvailableDates() ([]string, error) {
+	rows, err := s.db.Query(`
+		SELECT DISTINCT date(ts,'unixepoch','localtime')
+		FROM readings ORDER BY 1 DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var dates []string
+	for rows.Next() {
+		var d string
+		if err := rows.Scan(&d); err != nil {
+			continue
+		}
+		dates = append(dates, d)
+	}
+	return dates, rows.Err()
+}
+
+// DailyReadings returns all readings for a given local date (YYYY-MM-DD).
+func (s *Store) DailyReadings(date string) ([]FullReading, error) {
+	rows, err := s.db.Query(`
+		SELECT ts,percent,ac,charging,secs_left,
+		       designed_cap,full_cap,cycle_count,voltage_mv,rate_mw,cap_now_mwh
+		FROM readings
+		WHERE date(ts,'unixepoch','localtime') = ?
+		ORDER BY ts ASC`, date)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []FullReading
+	for rows.Next() {
+		var r FullReading
+		var ac, charging int
+		if err := rows.Scan(&r.TS, &r.Percent, &ac, &charging, &r.SecsLeft,
+			&r.DesignedCap, &r.FullCap, &r.CycleCount,
+			&r.VoltageMV, &r.RateMW, &r.CapNowMWh); err != nil {
+			continue
+		}
+		r.AC, r.Charging = ac == 1, charging == 1
+		out = append(out, r)
 	}
 	return out, rows.Err()
 }

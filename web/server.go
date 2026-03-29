@@ -3,6 +3,7 @@ package web
 import (
 	"bytes"
 	"context"
+	"encoding/csv"
 	"encoding/json"
 	"fmt"
 	"html/template"
@@ -17,6 +18,7 @@ import (
 
 	"notebook_bat/battery"
 	"notebook_bat/config"
+	"notebook_bat/logbuf"
 	"notebook_bat/storage"
 )
 
@@ -68,6 +70,7 @@ type Server struct {
 	clientMu  sync.Mutex
 	tmpl      *template.Template
 	store     *storage.Store
+	logBuf    *logbuf.Buffer
 }
 
 func New(addr string, cfg *config.Config) (*Server, error) {
@@ -83,7 +86,8 @@ func New(addr string, cfg *config.Config) (*Server, error) {
 	}, nil
 }
 
-func (s *Server) SetStore(st *storage.Store) { s.store = st }
+func (s *Server) SetStore(st *storage.Store)    { s.store = st }
+func (s *Server) SetLogBuffer(b *logbuf.Buffer) { s.logBuf = b }
 
 // Push is called by the monitor on every poll cycle.
 func (s *Server) Push(info battery.Info, cap battery.CapacityInfo, rate battery.RateInfo) {
@@ -120,6 +124,9 @@ func (s *Server) Start(ctx context.Context) error {
 	mux.HandleFunc("/api/report/processes", s.handleReportProcesses)
 	mux.HandleFunc("/api/report/proctimeline", s.handleReportProcTimeline)
 	mux.HandleFunc("/api/report/recent", s.handleReportRecent)
+	mux.HandleFunc("/api/logs", s.handleLogs)
+	mux.HandleFunc("/api/export/dates", s.handleExportDates)
+	mux.HandleFunc("/api/export/csv", s.handleExportCSV)
 
 	srv := &http.Server{Addr: s.addr, Handler: mux}
 	ln, err := net.Listen("tcp", s.addr)
@@ -306,6 +313,79 @@ func (s *Server) handleReportRecent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	jsonOK(w, rows)
+}
+
+func (s *Server) handleExportDates(w http.ResponseWriter, r *http.Request) {
+	if s.store == nil {
+		jsonError(w, "storage not enabled", 503)
+		return
+	}
+	dates, err := s.store.AvailableDates()
+	if err != nil {
+		jsonError(w, err.Error(), 500)
+		return
+	}
+	jsonOK(w, dates)
+}
+
+func (s *Server) handleExportCSV(w http.ResponseWriter, r *http.Request) {
+	if s.store == nil {
+		jsonError(w, "storage not enabled", 503)
+		return
+	}
+	date := r.URL.Query().Get("date")
+	if date == "" {
+		date = time.Now().Format("2006-01-02")
+	}
+	rows, err := s.store.DailyReadings(date)
+	if err != nil {
+		jsonError(w, err.Error(), 500)
+		return
+	}
+	filename := "battery-" + date + ".csv"
+	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+	w.Header().Set("Content-Disposition", `attachment; filename="`+filename+`"`)
+	// UTF-8 BOM so Excel opens correctly
+	w.Write([]byte{0xEF, 0xBB, 0xBF})
+	cw := csv.NewWriter(w)
+	_ = cw.Write([]string{
+		"時間", "電量%", "插電", "充電中",
+		"剩餘秒", "設計容量mWh", "實際容量mWh", "循環次數",
+		"電壓mV", "功率mW", "目前容量mWh",
+	})
+	loc := time.Local
+	for _, row := range rows {
+		t := time.Unix(row.TS, 0).In(loc).Format("2006-01-02 15:04:05")
+		ac := "否"
+		if row.AC {
+			ac = "是"
+		}
+		chg := "否"
+		if row.Charging {
+			chg = "是"
+		}
+		_ = cw.Write([]string{
+			t,
+			strconv.Itoa(row.Percent),
+			ac, chg,
+			strconv.Itoa(row.SecsLeft),
+			strconv.Itoa(row.DesignedCap),
+			strconv.Itoa(row.FullCap),
+			strconv.Itoa(row.CycleCount),
+			strconv.Itoa(row.VoltageMV),
+			strconv.Itoa(row.RateMW),
+			strconv.Itoa(row.CapNowMWh),
+		})
+	}
+	cw.Flush()
+}
+
+func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {
+	if s.logBuf == nil {
+		jsonOK(w, []string{})
+		return
+	}
+	jsonOK(w, s.logBuf.Lines())
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

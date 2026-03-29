@@ -39,12 +39,19 @@ type Monitor struct {
 	store  *storage.Store
 }
 
-func New(cfg *config.Config) *Monitor {
-	var w io.Writer = os.Stdout
+func New(cfg *config.Config, extra ...io.Writer) *Monitor {
+	writers := []io.Writer{os.Stdout}
 	if cfg.LogToFile {
 		if f, err := os.OpenFile("battery.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644); err == nil {
-			w = io.MultiWriter(os.Stdout, f)
+			writers = append(writers, f)
 		}
+	}
+	writers = append(writers, extra...)
+	var w io.Writer
+	if len(writers) == 1 {
+		w = writers[0]
+	} else {
+		w = io.MultiWriter(writers...)
 	}
 	return &Monitor{
 		cfg:    cfg,

@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"os/signal"
@@ -12,6 +13,7 @@ import (
 	"github.com/kardianos/service"
 	"notebook_bat/battery"
 	"notebook_bat/config"
+	"notebook_bat/logbuf"
 	"notebook_bat/monitor"
 	"notebook_bat/storage"
 	"notebook_bat/web"
@@ -39,17 +41,22 @@ var svcConfig = &service.Config{
 type program struct {
 	ctx    context.Context
 	cancel context.CancelFunc
+	lb     logbuf.Buffer
 }
 
 func (p *program) Start(_ service.Service) error { go p.run(); return nil }
 func (p *program) Stop(_ service.Service) error  { p.cancel(); return nil }
 
 func (p *program) run() {
+	// Redirect global logger to also capture into the in-memory log buffer.
+	log.SetOutput(io.MultiWriter(os.Stderr, &p.lb))
+
 	cfg, err := config.Load(*cfgPath)
 	if err != nil {
 		log.Printf("[config] %v — using defaults", err)
 		cfg = config.Default()
 	}
+	log.Printf("[startup] db=%s web=%s", *dbPath, *webAddr)
 
 	var store *storage.Store
 	if *dbPath != "" {
@@ -64,7 +71,7 @@ func (p *program) run() {
 	stop := make(chan struct{})
 	go func() { <-p.ctx.Done(); close(stop) }()
 
-	m := monitor.New(cfg)
+	m := monitor.New(cfg, &p.lb)
 	if store != nil {
 		m.SetStore(store)
 	}
@@ -77,6 +84,7 @@ func (p *program) run() {
 			if store != nil {
 				srv.SetStore(store)
 			}
+			srv.SetLogBuffer(&p.lb)
 			m.SetPusher(srv)
 			go func() {
 				if err := srv.Start(p.ctx); err != nil {

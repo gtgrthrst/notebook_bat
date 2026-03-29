@@ -6,7 +6,7 @@
     Name="Battery Monitor"
     Language="1028"
     Codepage="1252"
-    Version="1.0.0.0"
+    Version="1.1.0.0"
     Manufacturer="notebook_bat"
     UpgradeCode="{6D8E3F12-A4B5-4C67-8D9E-0A1B2C3D4E5F}">
 
@@ -22,12 +22,19 @@
 
     <MediaTemplate EmbedCab="yes" />
 
+    <!-- Battery icon for Control Panel and Start Menu shortcut -->
+    <Icon Id="battery.ico" SourceFile="battery.ico" />
+    <Property Id="ARPPRODUCTICON" Value="battery.ico" />
+
     <Directory Id="TARGETDIR" Name="SourceDir">
       <Directory Id="ProgramFiles64Folder">
         <Directory Id="INSTALLFOLDER" Name="BatteryMonitor" />
       </Directory>
       <Directory Id="CommonAppDataFolder">
         <Directory Id="DATADIR" Name="BatteryMonitor" />
+      </Directory>
+      <Directory Id="ProgramMenuFolder">
+        <Directory Id="BatteryMonitorMenuFolder" Name="Battery Monitor" />
       </Directory>
     </Directory>
 
@@ -64,6 +71,20 @@
 
       <Component Id="CmpData" Directory="DATADIR" Guid="{B2345678-CDEF-0123-4567-890ABCDEF012}">
         <CreateFolder />
+      </Component>
+
+      <!-- Start Menu shortcut → opens dashboard in default browser -->
+      <Component Id="CmpShortcut" Directory="BatteryMonitorMenuFolder" Guid="{C3456789-DEF0-1234-5678-90ABCDEF0123}">
+        <Shortcut Id="DashboardShortcut"
+          Name="Battery Monitor Dashboard"
+          Description="Open battery monitor dashboard (http://localhost:8089)"
+          Target="[WindowsFolder]explorer.exe"
+          Arguments="http://localhost:8089"
+          Icon="battery.ico"
+          IconIndex="0" />
+        <RemoveFolder Id="RemoveBMMenuFolder" Directory="BatteryMonitorMenuFolder" On="uninstall" />
+        <RegistryValue Root="HKCU" Key="Software\BatteryMonitor" Name="ShortcutInstalled"
+          Type="integer" Value="1" KeyPath="yes" />
       </Component>
 
     </ComponentGroup>
